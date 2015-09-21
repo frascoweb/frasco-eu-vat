@@ -200,7 +200,7 @@ class EUVATFeature(Feature):
             query = current_app.features.models.query(self.model)
             for country_code in EU_COUNTRIES:
                 rate = self.service.get_vat_rate(country_code)
-                for obj in query.filter_by(eu_vat_country=country_code, eu_vat_rate={"$ne": rate}).all():
+                for obj in query.filter(eu_vat_country=country_code, eu_vat_rate__ne=rate).all():
                     obj.eu_vat_rate = rate
                     self.model_rate_updated_signal.send(obj)
                     save_model(obj)
