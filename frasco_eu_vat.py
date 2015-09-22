@@ -176,7 +176,8 @@ class EUVATFeature(Feature):
             app.features.models.ensure_model(app.features.invoicing.model,
                 is_eu_country=bool,
                 eu_vat_number=str,
-                eu_exchange_rate=float)
+                eu_exchange_rate=float,
+                eu_vat_amount=float)
             app.features.invoicing.invoice_issued_signal.connect(self.on_invoice)
 
     def is_eu_country(self, country_code):
@@ -212,6 +213,8 @@ class EUVATFeature(Feature):
             sender.eu_vat_number = sender.customer.eu_vat_number
             try:
                 sender.eu_exchange_rate = self.service.get_exchange_rate(sender.country, sender.currency)
+                if sender.tax_amount:
+                    sender.eu_vat_amount = sender.tax_amount * sender.eu_exchange_rate
             except Exception as e:
                 current_app.logger.error(e)
                 sender.eu_exchange_rate = None
