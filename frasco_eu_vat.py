@@ -178,7 +178,7 @@ class EUVATFeature(Feature):
                 eu_vat_number=str,
                 eu_exchange_rate=float,
                 eu_vat_amount=float)
-            app.features.invoicing.invoice_issued_signal.connect(self.on_invoice)
+            app.features.invoicing.invoice_issueing_signal.connect(self.on_invoice)
 
     def is_eu_country(self, country_code):
         return is_eu_country(country_code)
