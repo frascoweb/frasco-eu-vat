@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='frasco-eu-vat',
-    version='0.3',
+    version='0.3.1',
     url='http://github.com/frascoweb/frasco-eu-vat',
     license='MIT',
     author='Maxime Bouroumeau-Fuseau',

@@ -6,6 +6,7 @@ from suds import WebFault
 import requests
 import xml.etree.ElementTree as ET
 import datetime
+import urllib2
 
 
 EU_COUNTRIES = {
@@ -66,8 +67,20 @@ def fetch_exchange_rates():
     return rates
 
 
-VIESClient = SudsClient(VIES_SOAP_WSDL_URL)
-TICClient = SudsClient(TIC_SOAP_WSDL_URL)
+VIESClient = None
+def get_vies_soap_client():
+    global VIESClient
+    if not VIESClient:
+        VIESClient = SudsClient(VIES_SOAP_WSDL_URL)
+    return VIESClient
+
+
+TICClient = None
+def get_ticc_soap_client():
+    global TICClient
+    if not TICClient:
+        TICClient = SudsClient(TIC_SOAP_WSDL_URL)
+    return TICClient
 
 
 class EUVATService(Service):
@@ -83,7 +96,7 @@ class EUVATService(Service):
             rate_type = current_app.features.eu_vat.options['vat_rate']
         if country_code not in _vat_rates_cache:
             try:
-                r = TICClient.service.getRates(dict(memberState=country_code,
+                r = get_ticc_soap_client().service.getRates(dict(memberState=country_code,
                     requestDate=datetime.date.today().isoformat()))
             except WebFault:
                 pass
@@ -98,7 +111,7 @@ class EUVATService(Service):
         if len(vat_number) < 3:
             raise ServiceError('VAT number too short', 400)
         try:
-            r = VIESClient.service.checkVat(vat_number[0:2].upper(), vat_number[2:])
+            r = get_vies_soap_client().service.checkVat(vat_number[0:2].upper(), vat_number[2:])
             return r.valid
         except WebFault:
             pass
