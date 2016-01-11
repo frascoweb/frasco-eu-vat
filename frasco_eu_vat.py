@@ -107,9 +107,11 @@ class EUVATService(Service):
 
     @expose('/validate-vat-number', methods=['POST'])
     @request_param('vat_number', type=str)
-    def validate_vat_number(self, vat_number):
+    def validate_vat_number(self, vat_number, raise_on_error=True):
         if len(vat_number) < 3:
-            raise ServiceError('VAT number too short', 400)
+            if raise_on_error:
+                raise ServiceError('VAT number too short', 400)
+            return False
         try:
             r = get_vies_soap_client().service.checkVat(vat_number[0:2].upper(), vat_number[2:])
             return r.valid
@@ -142,7 +144,7 @@ class EUVATService(Service):
     def check(self, country_code, vat_number=None, amount=None, src_currency='EUR'):
         if not is_eu_country(country_code):
             raise ServiceError('Not an EU country', 404)
-        is_vat_number_valid = self.validate_vat_number(vat_number) if vat_number else False
+        is_vat_number_valid = self.validate_vat_number(vat_number, False) if vat_number else False
         o = {
             "country": country_code,
             "currency": EU_COUNTRIES[country_code],
@@ -223,13 +225,14 @@ class EUVATFeature(Feature):
     def on_invoice(self, sender):
         if is_eu_country(sender.country):
             sender.is_eu_country = True
-            sender.eu_vat_number = sender.customer.eu_vat_number
+            if sender.customer:
+                sender.eu_vat_number = sender.customer.eu_vat_number
             try:
                 sender.eu_exchange_rate = self.service.get_exchange_rate(sender.country, sender.currency)
                 if sender.tax_amount:
                     sender.eu_vat_amount = sender.tax_amount * sender.eu_exchange_rate
             except Exception as e:
-                current_app.logger.error(e)
+                current_app.log_exception(e)
                 sender.eu_exchange_rate = None
             if sender.eu_vat_number and self.options['invoice_customer_mention_message']:
                 sender.customer_special_mention = self.options['invoice_customer_mention_message'].format(
