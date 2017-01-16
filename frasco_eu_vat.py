@@ -40,6 +40,37 @@ EU_COUNTRIES = {
     "SK": "EUR"  # Slovakia
 }
 
+KNOW_VAT_RATES = {
+    "AT": 20.0, # Austria
+    "BE": 21.0, # Belgium
+    "BG": 20.0, # Bulgaria
+    "DE": 19.0, # Germany
+    "CY": 19.0, # Cyprus
+    "CZ": 21.0, # Czech Republic
+    "DK": 25.0, # Denmark
+    "EE": 20.0, # Estonia
+    "ES": 21.0, # Spain
+    "FI": 24.0, # Finland
+    "FR": 20.0, # France,
+    "GB": 20.0, # Great Britain
+    "GR": 23.0, # Greece
+    "HR": 25.0, # Croatia
+    "HU": 27.0, # Hungary
+    "IE": 23.0, # Ireland
+    "IT": 22.0, # Italy
+    "LT": 21.0, # Lithuania
+    "LV": 21.0, # Latvia
+    "LU": 15.0, # Luxembourg
+    "MT": 18.0, # Malta
+    "NL": 21.0, # Netherlands
+    "PL": 23.0, # Poland
+    "PT": 23.0, # Portugal
+    "RO": 24.0, # Romania
+    "SE": 25.0, # Sweden
+    "SI": 22.0, # Slovenia
+    "SK": 20.0  # Slovakia
+}
+
 ECB_EUROFXREF_URL = 'http://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml'
 ECB_EUROFXREF_XML_NS = 'http://www.ecb.int/vocabulary/2002-08-01/eurofxref'
 VIES_SOAP_WSDL_URL = 'http://ec.europa.eu/taxation_customs/vies/checkVatService.wsdl'
@@ -58,12 +89,15 @@ def fetch_exchange_rates():
     today = datetime.date.today()
     if today in _exchange_rates_cache:
         return _exchange_rates_cache[today]
-    r = requests.get(ECB_EUROFXREF_URL)
-    root = ET.fromstring(r.text)
     rates = {'EUR': 1.0}
-    for cube in root.findall('eu:Cube/eu:Cube/eu:Cube', {'eu': ECB_EUROFXREF_XML_NS}):
-        rates[cube.attrib['currency']] = float(cube.attrib['rate'])
-    _exchange_rates_cache[today] = rates
+    try:
+        r = requests.get(ECB_EUROFXREF_URL)
+        root = ET.fromstring(r.text)
+        for cube in root.findall('eu:Cube/eu:Cube/eu:Cube', {'eu': ECB_EUROFXREF_XML_NS}):
+            rates[cube.attrib['currency']] = float(cube.attrib['rate'])
+        _exchange_rates_cache[today] = rates
+    except Exception as e:
+        current_app.log_exception(e)
     return rates
 
 
@@ -90,19 +124,22 @@ class EUVATService(Service):
     @expose('/rates/<country_code>')
     @request_param('country_code', type=str)
     def get_vat_rate(self, country_code, rate_type=None):
+        country_code = country_code.upper()
         if not is_eu_country(country_code):
             raise ServiceError('Not an EU country', 404)
         if not rate_type:
             rate_type = current_app.features.eu_vat.options['vat_rate']
         if country_code not in _vat_rates_cache:
+            _vat_rates_cache[country_code] = {}
             try:
                 r = get_ticc_soap_client().service.getRates(dict(memberState=country_code,
                     requestDate=datetime.date.today().isoformat()))
-            except WebFault:
-                pass
-            _vat_rates_cache[country_code] = {}
-            for rate in r.ratesResponse.rate:
-                _vat_rates_cache[country_code][rate.type.lower()] = float(rate.value)
+                for rate in r.ratesResponse.rate:
+                    _vat_rates_cache[country_code][rate.type.lower()] = float(rate.value)
+            except Exception as e:
+                current_app.log_exception(e)
+                _vat_rates_cache.pop(country_code)
+                return current_app.features.eu_vat.options['backup_vat_rates'].get(country_code)
         return _vat_rates_cache[country_code].get(rate_type.lower())
 
     @expose('/validate-vat-number', methods=['POST'])
@@ -131,10 +168,10 @@ class EUVATService(Service):
         if src_currency == dest_currency:
             return 1.0
         if src_currency == 'EUR':
-            return rates[dest_currency]
+            return rates.get(dest_currency, 1.0)
         if src_currency not in rates:
             raise ServiceError('Can only use a currency listed in the ECB rates', 400)
-        return round(1 / rates[src_currency] * rates[dest_currency], 5)
+        return round(1.0 / rates[src_currency] * rates.get(dest_currency, 1.0), 5)
 
     @expose('/check', methods=['POST'])
     @request_param('country_code', type=str)
@@ -171,6 +208,7 @@ class EUVATFeature(Feature):
     defaults = {"own_country": None,
                 "vat_rate": "standard",
                 "model": None,
+                "backup_vat_rates": KNOW_VAT_RATES,
                 "invoice_customer_mention_message": lazy_translate("VAT Number: {number}")}
 
     model_rate_updated_signal = signal('vat_model_rate_updated')
